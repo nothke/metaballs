@@ -118,6 +118,45 @@ public class CubeGrid {
         }
     }
 
+    public List<int> getTriangleList()
+    {
+        int num = this.vertices.Count;
+
+        if (this.triangleBuffer == null)
+        {
+            // nothing in buffer, create it
+            this.triangleBuffer = new List<int>();
+            for (int i = 0; i < num; i++)
+            {
+                this.triangleBuffer.Add(i);
+            }
+
+            return triangleBuffer;
+        }
+        else if (this.triangleBuffer.Count < num)
+        {
+            // missing elements in buffer, add them
+            for (int i = this.triangleBuffer.Count; i < num; i++)
+            {
+                this.triangleBuffer.Add(i);
+            }
+
+            return triangleBuffer;
+        }
+        else if (this.triangleBuffer.Count == num)
+        {
+            // buffer is of perfect size, just return it
+
+            return triangleBuffer;
+        }
+        else
+        {
+            // buffer is too long, return slice
+
+            return this.triangleBuffer.GetRange(0, num); // alloc
+        }
+    }
+
     public void destroy() {
         this.positionsBuffer.Release();
         this.valuesBuffer.Release();
