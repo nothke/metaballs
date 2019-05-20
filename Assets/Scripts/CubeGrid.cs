@@ -1,6 +1,7 @@
 ﻿using UnityEngine;
 using System.Collections;
 using System.Collections.Generic;
+using UnityEngine.Profiling;
 
 struct GPUEdgeValues {
     public float edge0Val, edge1Val, edge2Val, edge3Val, edge4Val, edge5Val, edge6Val, edge7Val;
@@ -69,7 +70,7 @@ public class CubeGrid {
         this.vertices.Clear();
         
         // write info about metaballs in format readable by compute shaders
-        GPUBall[] gpuBalls = new GPUBall[metaballs.Length];
+        GPUBall[] gpuBalls = new GPUBall[metaballs.Length]; // alloc
         for(int i = 0; i < metaballs.Length; i++) {
             MetaBall metaball = metaballs[i];
             gpuBalls[i].position = metaball.transform.localPosition;
@@ -77,7 +78,7 @@ public class CubeGrid {
         }
         
         // magic happens here
-        GPUEdgeVertices[] edgeVertices = this.runComputeShader(gpuBalls);
+        GPUEdgeVertices[] edgeVertices = this.runComputeShader(gpuBalls); // alloc
 
         // perform rest of the marching cubes algorithm
         for(int x = 0; x < this.width; x++) {
@@ -272,11 +273,18 @@ public class CubeGrid {
         this.shader.SetFloat("threshold", this.container.threshold);
 
         // Run, Forrest, run!
+        Profiler.BeginSample("Shader Dispatch");
         this.shader.Dispatch(this.shaderKernel, this.width / 8, this.height / 8, this.depth / 8);
+        Profiler.EndSample();
 
         // parse returned vertex data and return it
-        GPUEdgeVertices[] output = new GPUEdgeVertices[this.verticesBuffer.count];
+        Profiler.BeginSample("Create Vertex Buffer");
+        GPUEdgeVertices[] output = new GPUEdgeVertices[this.verticesBuffer.count]; // alloc
+        Profiler.EndSample();
+        Profiler.BeginSample("Get Data");
         this.verticesBuffer.GetData(output);
+        Profiler.EndSample();
+
         return output;
     }
 
