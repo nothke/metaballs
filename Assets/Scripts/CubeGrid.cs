@@ -1,6 +1,11 @@
-﻿using UnityEngine;
+﻿#define ASYNC
+
+using UnityEngine;
 using System.Collections;
 using System.Collections.Generic;
+using UnityEngine.Rendering;
+using Unity.Collections;
+
 using UnityEngine.Profiling;
 
 struct GPUEdgeValues {
@@ -17,6 +22,7 @@ struct GPUBall {
     public Vector3 position;
 }
 
+// expected 148 bytes
 struct GPUEdgeVertices {
     public int index;
     public Vector3 edge0, edge1, edge2, edge3, edge4, edge5, edge6, edge7, edge8, edge9, edge10, edge11;
@@ -76,12 +82,21 @@ public class CubeGrid {
             gpuBalls[i].position = metaball.transform.localPosition;
             gpuBalls[i].factor = metaball.factor;
         }
-        
+
         // magic happens here
+#if !ASYNC
         GPUEdgeVertices[] edgeVertices = this.runComputeShader(gpuBalls); // alloc
+#else
+        this.runComputeShaderAsync(gpuBalls);
+
+        GPUEdgeVertices[] edgeVertices = this.GetEdgeVerticesFromAsync();
+
+        if (edgeVertices == null) return;
+#endif
+        Debug.Log("ev lnt: " + edgeVertices.Length + ", total: " + width * height * depth + ", first index: " + edgeVertices[0].index);
 
         // perform rest of the marching cubes algorithm
-        for(int x = 0; x < this.width; x++) {
+        for (int x = 0; x < this.width; x++) {
             for(int y = 0; y < this.height; y++) {
                 for(int z = 0; z < this.depth; z++) {
                     this.updateVertices2(edgeVertices[x + this.width * (y + this.height * z)]);
@@ -286,6 +301,59 @@ public class CubeGrid {
         Profiler.EndSample();
 
         return output;
+    }
+
+    private void runComputeShaderAsync(GPUBall[] gpuBalls)
+    {
+        // pass data to the compute shader
+        this.metaballsBuffer.SetData(gpuBalls);
+        this.shader.SetInt("numMetaballs", gpuBalls.Length);
+        this.shader.SetInt("width", this.width);
+        this.shader.SetInt("height", this.height);
+        this.shader.SetFloat("threshold", this.container.threshold);
+
+        // Run asynchrounsly, Forrest, run asynchronously!
+        Profiler.BeginSample("Shader Dispatch");
+        this.shader.Dispatch(this.shaderKernel, this.width / 8, this.height / 8, this.depth / 8);
+        Profiler.EndSample();
+
+        AsyncGPUReadback.Request(metaballsBuffer, Callback);
+    }
+
+    NativeArray<GPUEdgeVertices> asyncEdgeVertices;
+    
+    private void Callback(AsyncGPUReadbackRequest request)
+    {
+        if (request.done)
+        {
+            if (request.hasError)
+                Debug.LogError("Has error!");
+
+            // What the fuck is going on here!??!
+            // request.GetData() doesn't match classic buffer.GetData()
+
+            Debug.Log("Layer ct: " + request.layerCount);
+            Debug.Log("LayerDataSize: " + request.layerDataSize);
+            asyncEdgeVertices = request.GetData<GPUEdgeVertices>(0);
+
+            Debug.Log("Done, length: " + asyncEdgeVertices.Length);
+            Debug.Log("First index: " + asyncEdgeVertices[0].index);
+
+            // In bytes check:
+            var b = request.GetData<byte>();
+            Debug.Log("Byte length: " + b.Length);
+            Debug.Log("GPUEdgeVertices vs byte compare: " + (float)b.Length / asyncEdgeVertices.Length);
+            Debug.Log("Compare remainder: " + b.Length % asyncEdgeVertices.Length);
+            Debug.Log("First byte: " + b[0]);
+        }
+    }
+
+    GPUEdgeVertices[] GetEdgeVerticesFromAsync()
+    {
+        if (!asyncEdgeVertices.IsCreated)
+            return null;
+        else
+            return asyncEdgeVertices.ToArray();
     }
 
     //
